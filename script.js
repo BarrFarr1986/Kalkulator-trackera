@@ -772,6 +772,91 @@ function optimizePipeLengths(allPipeSegments) {
     return catalog;
 }
 
+/**
+ * Cross-variant pipe length unification.
+ * Groups similar pipe lengths (within 200mm) across all variants/sides
+ * and recommends universal pipe types to reduce the total number of unique lengths.
+ * @param {Array} allPipeSegments - Array of pipe segment arrays from all variants/sides
+ * @returns {Array} Recommended universal lengths: [{length, count, sources}]
+ */
+function unifyAcrossVariants(allPipeSegments) {
+    // 1. Collect all pipe lengths with their source info
+    const allLengths = [];
+    for (let segIdx = 0; segIdx < allPipeSegments.length; segIdx++) {
+        for (const pipe of allPipeSegments[segIdx]) {
+            allLengths.push(pipe.length);
+        }
+    }
+
+    if (allLengths.length === 0) return [];
+
+    // 2. Get unique lengths sorted ascending
+    const uniqueLengths = [...new Set(allLengths)].sort((a, b) => a - b);
+
+    if (uniqueLengths.length <= 1) {
+        return [{
+            recommendedLength: uniqueLengths[0],
+            originalLengths: uniqueLengths,
+            count: allLengths.length
+        }];
+    }
+
+    // 3. Group lengths within 200mm of each other (cluster by proximity)
+    const groups = [];
+    let currentGroup = [uniqueLengths[0]];
+
+    for (let i = 1; i < uniqueLengths.length; i++) {
+        // Compare with the first element in the current group (anchor)
+        if (uniqueLengths[i] - currentGroup[0] <= 200) {
+            currentGroup.push(uniqueLengths[i]);
+        } else {
+            groups.push([...currentGroup]);
+            currentGroup = [uniqueLengths[i]];
+        }
+    }
+    groups.push(currentGroup);
+
+    // 4. For each group, determine the recommended universal length
+    const recommendations = [];
+    for (const group of groups) {
+        // Count occurrences of each length in the group across all segments
+        const lengthCounts = {};
+        for (const len of group) {
+            lengthCounts[len] = 0;
+        }
+        for (const len of allLengths) {
+            if (lengthCounts[len] !== undefined) {
+                lengthCounts[len]++;
+            }
+        }
+
+        // Pick the most common length; if tied, pick the longest
+        let recommendedLength = group[group.length - 1]; // default: longest
+        let maxCount = 0;
+        for (const len of group) {
+            if (lengthCounts[len] > maxCount ||
+                (lengthCounts[len] === maxCount && len > recommendedLength)) {
+                maxCount = lengthCounts[len];
+                recommendedLength = len;
+            }
+        }
+
+        // Total count of pipes that could use this recommended length
+        let totalCount = 0;
+        for (const len of group) {
+            totalCount += lengthCounts[len];
+        }
+
+        recommendations.push({
+            recommendedLength: recommendedLength,
+            originalLengths: group,
+            count: totalCount
+        });
+    }
+
+    return recommendations;
+}
+
 // ============================================================
 // SECTION 6 - Validation Engine
 // ============================================================
@@ -1371,7 +1456,11 @@ function runOptimization(currentResults) {
     }
 
     const optimized = optimizePipeLengths(allPipeSegments);
-    renderOptimizationTable(optimized);
+
+    // Cross-variant unification: find recommended universal pipe types
+    const universalTypes = unifyAcrossVariants(allPipeSegments);
+
+    renderOptimizationTable(optimized, universalTypes);
 }
 
 /**
@@ -1584,7 +1673,7 @@ function renderSummaryTable(results) {
 /**
  * Render optimization table.
  */
-function renderOptimizationTable(catalog) {
+function renderOptimizationTable(catalog, universalTypes) {
     const tbody = document.querySelector('#optimizationTable tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
@@ -1593,6 +1682,7 @@ function renderOptimizationTable(catalog) {
         const row = document.createElement('tr');
         row.innerHTML = '<td colspan="3">Brak danych - uruchom obliczenia</td>';
         tbody.appendChild(row);
+        renderUniversalTypesTable([]);
         return;
     }
 
@@ -1600,6 +1690,73 @@ function renderOptimizationTable(catalog) {
         const row = document.createElement('tr');
         row.innerHTML = `<td>${item.length}</td><td>${item.count}</td><td>${item.usage}</td>`;
         tbody.appendChild(row);
+    }
+
+    // Render universal types section
+    renderUniversalTypesTable(universalTypes || []);
+}
+
+/**
+ * Render cross-variant universal pipe types recommendation table.
+ * Shows recommended universal pipe types that reduce the total number of unique lengths.
+ */
+function renderUniversalTypesTable(universalTypes) {
+    let container = document.getElementById('universalTypesSection');
+    if (!container) {
+        // Create the section dynamically after the optimization table
+        const optTable = document.getElementById('optimizationTable');
+        if (!optTable) return;
+        container = document.createElement('div');
+        container.id = 'universalTypesSection';
+        container.className = 'table-block';
+        container.innerHTML = `
+            <h3>Rekomendowane uniwersalne typy rur</h3>
+            <p class="universal-types-info">Unifikacja dlugosci pomiedzy wariantami - grupy rur o podobnych dlugosciach (roznica do 200mm) zredukowane do jednego typu.</p>
+            <table id="universalTypesTable">
+                <thead>
+                    <tr>
+                        <th>Rekomendowana dlugosc (mm)</th>
+                        <th>Zastepuje dlugosci (mm)</th>
+                        <th>Laczna ilosc</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        `;
+        optTable.parentElement.appendChild(container);
+    }
+
+    const tbody = container.querySelector('#universalTypesTable tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (!universalTypes || universalTypes.length === 0) {
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = 'block';
+
+    // Only show if unification actually reduces types (at least one group has more than one length)
+    const hasUnification = universalTypes.some(u => u.originalLengths.length > 1);
+
+    for (const utype of universalTypes) {
+        const row = document.createElement('tr');
+        const originalStr = utype.originalLengths.join(', ');
+        const isUnified = utype.originalLengths.length > 1;
+        const unifiedClass = isUnified ? ' class="unified-highlight"' : '';
+        row.innerHTML = `<td${unifiedClass}>${utype.recommendedLength}</td><td>${originalStr}</td><td>${utype.count}</td>`;
+        tbody.appendChild(row);
+    }
+
+    // Add summary row showing total reduction
+    const totalOriginalTypes = universalTypes.reduce((sum, u) => sum + u.originalLengths.length, 0);
+    const totalRecommendedTypes = universalTypes.length;
+    if (totalOriginalTypes > totalRecommendedTypes) {
+        const summaryRow = document.createElement('tr');
+        summaryRow.className = 'summary-row';
+        summaryRow.innerHTML = `<td colspan="3"><strong>Redukcja: ${totalOriginalTypes} typow &rarr; ${totalRecommendedTypes} uniwersalnych typow</strong></td>`;
+        tbody.appendChild(summaryRow);
     }
 }
 

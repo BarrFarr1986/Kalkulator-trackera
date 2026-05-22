@@ -345,6 +345,33 @@ tbody tr:hover {
 .pipe-type-4 { color: var(--pipe-color-4); font-weight: 600; }
 .pipe-type-5 { color: var(--pipe-color-5); font-weight: 600; }
 
+/* --- Universal Types Section --- */
+#universalTypesSection {
+    margin-top: 1rem;
+}
+
+#universalTypesSection h3 {
+    color: var(--primary-dark);
+}
+
+.universal-types-info {
+    font-size: 0.85rem;
+    color: var(--text-light);
+    margin-bottom: 0.5rem;
+}
+
+#universalTypesTable .unified-highlight {
+    background: #dbeafe;
+    font-weight: 700;
+    color: var(--primary-dark);
+}
+
+#universalTypesTable .summary-row td {
+    background: var(--success-bg);
+    border-top: 2px solid var(--success-border);
+    text-align: center;
+}
+
 /* --- Responsive --- */
 @media (max-width: 900px) {
     .app-container {
