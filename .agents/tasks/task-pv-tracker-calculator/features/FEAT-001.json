@@ -1,0 +1,40 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Create the complete photovoltaic tracker calculator application with calculation engine, input UI, visualization canvas, and BOM output table. This is a greenfield single-page application split into 3 files: index.html, style.css, and script.js.",
+  "status": "in_progress",
+  "steps": [
+    "Create index.html with the page structure: (1) Header/title, (2) Input panel with fields for module width, dilation, modules left, modules right, plus a section to manage multiple tracker variants for pipe optimization, (3) Canvas/SVG area for visualization, (4) Output/BOM table area, (5) Warnings/validation messages area",
+    "Create style.css with responsive layout: input panel on left/top, visualization takes main area with scrollable/zoomable canvas, output table below. Use a clean modern design suitable for engineering tools. Color-code different pipe length types.",
+    "Create script.js with the following modular structure organized into clear sections with descriptive function names:",
+    "SECTION 1 - Configuration & Constants: Define default parameters (module_width=1303, dilation=29, motor_gap=630, pipe_gap_at_motor=140, support_post_width=250, standard_pipe_length=12000, pipe_gap=10, connector_length=300, spacing_types A/B/C with their raster multipliers and rounding to 100mm)",
+    "SECTION 2 - Module Position Calculator: Function calculateModulePositions(numModulesLeft, numModulesRight, moduleWidth, dilation, motorGap) that calculates center position of each module starting from motor center outward for both sides. Returns array of {index, side, centerX, leftEdge, rightEdge} objects.",
+    "SECTION 3 - Support Post Layout Algorithm: Function calculateSupportPosts(modulePositions, side, raster) that determines support post positions. Start with motor support at center. Working outward, select spacing pattern using A, B, C types. Each support must land near a module center (within ~100mm tolerance). Last support must be near center of last module. Implement the pattern logic: for long sides use B+A*n+B or similar, for short sides use C+A*n+C. Return array of {position, moduleIndex, spacingType} objects.",
+    "SECTION 4 - Pipe Segment Layout Algorithm: Function calculatePipeSegments(supportPosts, modulePositions, side, standardPipeLength, pipeGap, connectorLength) that lays pipes from motor outward. Start from motor (half of 140mm gap = 70mm from center). Lay standard 12m pipes where possible. At each potential connector position (pipe_gap=10mm between pipes), check if connector (300mm centered on gap) would collide with any support post (250mm wide). If collision detected, adjust pipe length (shorten or lengthen by one module raster unit) to shift connector to a valid module center position. Last pipe must extend 100-300mm beyond last module edge. Return array of {startX, endX, length, type} and connector positions.",
+    "SECTION 5 - Pipe Length Optimization: Function optimizePipeLengths(allTrackerVariants) that takes pipe segments from multiple tracker variants and minimizes unique pipe length types (target 3-4 types). Group similar lengths, prefer longer pipes. Return optimized pipe catalog with quantities.",
+    "SECTION 6 - Validation Engine: Function validateLayout(modulePositions, supportPosts, pipeSegments, connectors) that checks all constraints: (1) Support posts at module centers not on gaps/beams, (2) Connectors not colliding with supports, (3) Last support near center of last module, (4) Last pipe extends 100-300mm beyond last module, (5) Support post spacing uses only A/B/C types. Returns array of {type: 'error'|'warning', message} objects.",
+    "SECTION 7 - Visualization Renderer: Use HTML5 Canvas to draw top-down view of tracker. Draw modules as light blue rectangles with gaps between them. Draw support posts as dark gray rectangles (250mm wide). Draw pipes as colored bars (different color per length type) with connector positions marked. Draw motor/center with distinctive marking. Add dimension lines and measurements. Implement zoom (mouse wheel) and pan (click-drag) functionality. Add a scale indicator.",
+    "SECTION 8 - UI Controller: Wire up input fields to recalculate on change. Manage multiple tracker variants list. Populate BOM table with: support spacings used, pipe segments with lengths and quantities, connector positions, total tracker length. Display warnings from validation. Add 'Calculate' button plus auto-calculate on input change with debounce.",
+    "SECTION 9 - BOM Table Generator: Function generateBOM(calculationResults) that creates structured output: (1) Support post schedule - spacing pattern description and positions, (2) Pipe schedule - each unique length, quantity, which positions, (3) Connector schedule - each connector position and which modules it falls between, (4) Summary - total length, number of supports, number of pipes, number of connectors.",
+    "Ensure the calculation logic uses clear variable names and comments so it can be replicated in Google Sheets/Excel later. Add Polish-language labels in the UI where appropriate (parameter names, table headers)."
+  ],
+  "acceptance_criteria": [
+    "Opening index.html in a browser shows a functional calculator interface with input fields, visualization area, and output table",
+    "Entering 24 modules per side with default parameters (1303mm width, 29mm dilation) produces a support post pattern similar to B+A*3+B (5300+6600*3+5300) per side",
+    "Entering 31 modules per side produces a support post pattern similar to C+B+A*5+...+B+C per side",
+    "Pipe segments are calculated with connectors that do not collide with support posts",
+    "Last pipe extends 100-300mm beyond the last module edge",
+    "Visualization shows modules, support posts, pipes (color-coded by length), connectors, and motor center",
+    "Zoom and pan work on the visualization canvas",
+    "BOM table shows complete bill of materials with spacings, pipe lengths, quantities, and connector positions",
+    "Validation warnings appear when constraints are violated",
+    "Multiple tracker variants can be added and pipe lengths are optimized across all variants"
+  ],
+  "verification": [
+    "Open index.html in a browser or validate HTML/CSS/JS syntax",
+    "Run a basic JS syntax check to ensure no parse errors",
+    "Verify the file structure is complete: index.html references style.css and script.js correctly"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
