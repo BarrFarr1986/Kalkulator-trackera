@@ -651,6 +651,61 @@ function calculatePipeSegments(supportPosts, modules, standardPipeLength, pipeGa
         if (pipeIndex > 20) break;
     }
 
+    // Phase 2: Unify pipe lengths - try to match similar lengths to reduce unique types.
+    // For the last pipe: if its length differs from any other pipe by <= 200mm,
+    // try to adjust it to match that other pipe's length (check overhang still valid).
+    if (pipes.length >= 2) {
+        const lastPipe = pipes[pipes.length - 1];
+        const otherLengths = new Set(pipes.slice(0, -1).map(p => p.length));
+
+        for (const targetLen of otherLengths) {
+            if (Math.abs(lastPipe.length - targetLen) > 0 && Math.abs(lastPipe.length - targetLen) <= 200) {
+                // Check if using targetLen for last pipe keeps overhang valid
+                const newEnd = lastPipe.startX + targetLen;
+                const newOverhang = newEnd - trackEnd;
+                if (newOverhang >= minOverhang && newOverhang <= maxOverhang && targetLen <= standardPipeLength) {
+                    // Update last pipe
+                    lastPipe.length = targetLen;
+                    lastPipe.endX = newEnd;
+                    break;
+                }
+            }
+        }
+
+        // Also try to unify non-last pipes that differ by 100mm from each other
+        // by checking if the shorter one can be lengthened (connector still valid)
+        for (let i = 0; i < pipes.length - 1; i++) {
+            for (let j = i + 1; j < pipes.length - 1; j++) {
+                const diff = Math.abs(pipes[i].length - pipes[j].length);
+                if (diff === 100) {
+                    // Try to make the shorter one match the longer one
+                    const shorter = pipes[i].length < pipes[j].length ? i : j;
+                    const longer = pipes[i].length < pipes[j].length ? j : i;
+                    const targetLength = pipes[longer].length;
+                    const newEnd = pipes[shorter].startX + targetLength;
+                    const newConnCenter = newEnd + pipeGap / 2;
+
+                    if (targetLength <= standardPipeLength &&
+                        !checkConnectorCollision(newConnCenter, supportPosts, connectorLength, supportWidth, modules)) {
+                        pipes[shorter].length = targetLength;
+                        pipes[shorter].endX = newEnd;
+                        // Update connector position
+                        if (connectors[shorter]) {
+                            connectors[shorter].position = newConnCenter;
+                        }
+                        // Update next pipe's start
+                        if (shorter + 1 < pipes.length) {
+                            const nextStart = newEnd + pipeGap;
+                            const lengthDiff = nextStart - pipes[shorter + 1].startX;
+                            pipes[shorter + 1].startX = nextStart;
+                            pipes[shorter + 1].endX = nextStart + pipes[shorter + 1].length;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     return { pipes, connectors };
 }
 
