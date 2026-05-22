@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kalkulator Trackera PV</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Kalkulator Trackera PV</h1>
+        <p class="subtitle">Rozstaw slupkow, segmenty rur i pozycje zlaczek</p>
+    </header>
+
+    <div class="app-container">
+        <!-- Input Panel (sidebar) -->
+        <aside class="input-panel">
+            <section class="input-section">
+                <h2>Parametry modulu</h2>
+                <div class="input-group">
+                    <label for="moduleWidth">Szerokosc modulu (mm)</label>
+                    <input type="number" id="moduleWidth" value="1303" min="500" max="3000" step="1">
+                </div>
+                <div class="input-group">
+                    <label for="dilation">Dylatacja (mm)</label>
+                    <input type="number" id="dilation" value="29" min="0" max="100" step="1">
+                </div>
+                <div class="input-group">
+                    <label for="modulesLeft">Moduly lewa strona</label>
+                    <input type="number" id="modulesLeft" value="24" min="1" max="60" step="1">
+                </div>
+                <div class="input-group">
+                    <label for="modulesRight">Moduly prawa strona</label>
+                    <input type="number" id="modulesRight" value="24" min="1" max="60" step="1">
+                </div>
+            </section>
+
+            <section class="input-section">
+                <h2>Parametry zaawansowane</h2>
+                <div class="input-group">
+                    <label for="motorGap">Przerwa przy motorze (mm)</label>
+                    <input type="number" id="motorGap" value="630" min="100" max="2000" step="1">
+                </div>
+                <div class="input-group">
+                    <label for="pipeGapMotor">Przerwa rur przy motorze (mm)</label>
+                    <input type="number" id="pipeGapMotor" value="140" min="50" max="500" step="1">
+                </div>
+                <div class="input-group">
+                    <label for="standardPipeLength">Standardowa dlg. rury (mm)</label>
+                    <input type="number" id="standardPipeLength" value="12000" min="1000" max="20000" step="100">
+                </div>
+                <div class="input-group">
+                    <label for="pipeGap">Przerwa miedzy rurami (mm)</label>
+                    <input type="number" id="pipeGap" value="10" min="0" max="50" step="1">
+                </div>
+                <div class="input-group">
+                    <label for="connectorLength">Dlugosc zlaczki (mm)</label>
+                    <input type="number" id="connectorLength" value="300" min="100" max="600" step="10">
+                </div>
+                <div class="input-group">
+                    <label for="supportWidth">Szerokosc slupka (mm)</label>
+                    <input type="number" id="supportWidth" value="250" min="100" max="500" step="10">
+                </div>
+            </section>
+
+            <section class="input-section">
+                <h2>Warianty trackerow</h2>
+                <div id="variantList" class="variant-list">
+                    <!-- Variants added dynamically -->
+                </div>
+                <button id="addVariantBtn" class="btn btn-secondary">+ Dodaj wariant</button>
+            </section>
+
+            <button id="calculateBtn" class="btn btn-primary">Oblicz</button>
+        </aside>
+
+        <!-- Main content area -->
+        <main class="main-content">
+            <!-- Visualization -->
+            <section class="visualization-section">
+                <h2>Wizualizacja trackera</h2>
+                <div class="canvas-container">
+                    <canvas id="trackerCanvas"></canvas>
+                </div>
+                <div class="canvas-controls">
+                    <span class="zoom-info">Scroll: zoom | Przeciagnij: przesuniecie</span>
+                    <button id="resetViewBtn" class="btn btn-small">Reset widoku</button>
+                </div>
+            </section>
+
+            <!-- Warnings -->
+            <section id="warningsSection" class="warnings-section" style="display:none;">
+                <h2>Ostrzezenia i komunikaty</h2>
+                <div id="warningsList"></div>
+            </section>
+
+            <!-- BOM Output -->
+            <section class="output-section">
+                <h2>Zestawienie materialow (BOM)</h2>
+
+                <div class="output-tables">
+                    <div class="table-block">
+                        <h3>Rozstaw slupkow</h3>
+                        <table id="supportTable">
+                            <thead>
+                                <tr>
+                                    <th>Nr</th>
+                                    <th>Strona</th>
+                                    <th>Pozycja (mm)</th>
+                                    <th>Rozstaw od poprzedniego (mm)</th>
+                                    <th>Typ</th>
+                                    <th>Modul</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
+                    <div class="table-block">
+                        <h3>Segmenty rur</h3>
+                        <table id="pipeTable">
+                            <thead>
+                                <tr>
+                                    <th>Nr</th>
+                                    <th>Strona</th>
+                                    <th>Poczatek (mm)</th>
+                                    <th>Koniec (mm)</th>
+                                    <th>Dlugosc (mm)</th>
+                                    <th>Typ dlugosci</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
+                    <div class="table-block">
+                        <h3>Zlaczki</h3>
+                        <table id="connectorTable">
+                            <thead>
+                                <tr>
+                                    <th>Nr</th>
+                                    <th>Strona</th>
+                                    <th>Pozycja (mm)</th>
+                                    <th>Miedzy modulami</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
+                    <div class="table-block">
+                        <h3>Podsumowanie</h3>
+                        <table id="summaryTable">
+                            <thead>
+                                <tr>
+                                    <th>Parametr</th>
+                                    <th>Wartosc</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
+                    <div class="table-block">
+                        <h3>Optymalizacja rur (wszystkie warianty)</h3>
+                        <table id="optimizationTable">
+                            <thead>
+                                <tr>
+                                    <th>Typ dlugosci (mm)</th>
+                                    <th>Ilosc</th>
+                                    <th>Zastosowanie</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
