@@ -101,10 +101,16 @@ function roundTo100(value) {
 }
 
 /**
+ * Maximum allowed support post spacing in mm.
+ */
+const MAX_SPACING = 6600;
+
+/**
  * Calculate spacing value for a given type and raster.
+ * Clamped to MAX_SPACING (6600mm) regardless of raster calculation.
  */
 function getSpacing(type, raster) {
-    return roundTo100(SPACING_TYPES[type].multiplier * raster);
+    return Math.min(roundTo100(SPACING_TYPES[type].multiplier * raster), MAX_SPACING);
 }
 
 /**
@@ -159,22 +165,26 @@ function calculateSupportPosts(modules, raster) {
     // Try different patterns and pick the best one
     const patterns = generatePatterns(numModules, raster, lastModuleCenter, spacingA, spacingB, spacingC);
 
-    // Find the best pattern (one where last post lands closest to last module center)
+    // Find the best pattern (prefer more A-type spacings, then closest to last module center)
     let bestPattern = null;
-    let bestError = Infinity;
+    let bestScore = -Infinity;
 
     for (const pattern of patterns) {
         let pos = 0;
-        let totalDist = 0;
         for (const spacing of pattern) {
             pos += spacing;
         }
         const error = Math.abs(pos - lastModuleCenter);
-        if (error < bestError) {
-            bestError = error;
+        // Count A-type spacings (more A = better, since A is the largest allowed)
+        const countA = pattern.filter(s => s === spacingA).length;
+        // Score: prioritize more A spacings, then penalize distance from target
+        const score = countA * 10000 - error;
+        if (score > bestScore) {
+            bestScore = score;
             bestPattern = pattern;
         }
     }
+    const bestError = bestPattern ? Math.abs(bestPattern.reduce((s, v) => s + v, 0) - lastModuleCenter) : Infinity;
 
     // If no good pattern found, use a greedy approach
     if (!bestPattern || bestError > raster) {
@@ -401,7 +411,8 @@ function greedySupportPattern(numModules, raster, targetDistance, spacingA, spac
             const remainingDistance = targetDistance - nextPos;
             const score = distance * 2 + (remainingDistance < 0 ? 10000 : 0);
 
-            if (score < bestScore) {
+            // When scores are similar (within 50mm), prefer spacingA (largest allowed)
+            if (score < bestScore - 50 || (Math.abs(score - bestScore) <= 50 && spacing === spacingA)) {
                 bestScore = score;
                 bestSpacing = spacing;
             }
@@ -504,11 +515,32 @@ function calculatePipeSegments(supportPosts, modules, standardPipeLength, pipeGa
                 pipeEnd = pipeStart + standardPipeLength;
             }
 
+            // Round pipe length to nearest 100mm
+            let roundedLength = roundTo100(pipeEnd - pipeStart);
+            let roundedEnd = pipeStart + roundedLength;
+            let overhang = roundedEnd - trackEnd;
+
+            // Verify overhang is still within 100-300mm after rounding
+            if (overhang < minOverhang || overhang > maxOverhang) {
+                // Try the other rounding direction
+                const altLength = overhang < minOverhang
+                    ? roundedLength + 100  // round up
+                    : roundedLength - 100; // round down
+                const altEnd = pipeStart + altLength;
+                const altOverhang = altEnd - trackEnd;
+                if (altOverhang >= minOverhang && altOverhang <= maxOverhang && altLength > 0) {
+                    roundedLength = altLength;
+                    roundedEnd = altEnd;
+                }
+            }
+
+            pipeEnd = roundedEnd;
+
             pipes.push({
                 index: pipeIndex,
                 startX: pipeStart,
                 endX: pipeEnd,
-                length: Math.round(pipeEnd - pipeStart)
+                length: roundedLength
             });
             break;
         }
@@ -568,11 +600,17 @@ function calculatePipeSegments(supportPosts, modules, standardPipeLength, pipeGa
             }
         }
 
+        // Round pipe length to nearest 100mm
+        pipeEnd = pipeStart + roundTo100(pipeEnd - pipeStart);
+
+        // Recalculate connector center after rounding
+        connectorCenter = pipeEnd + pipeGap / 2;
+
         pipes.push({
             index: pipeIndex,
             startX: pipeStart,
             endX: pipeEnd,
-            length: Math.round(pipeEnd - pipeStart),
+            length: roundTo100(pipeEnd - pipeStart),
             collisionUnresolved: collisionUnresolved
         });
 
@@ -619,12 +657,13 @@ function optimizePipeLengths(allPipeSegments) {
     // Sort lengths
     allLengths.sort((a, b) => a - b);
 
-    // Cluster similar lengths (within 100mm tolerance)
+    // Cluster pipe lengths - since all pipes are now multiples of 100mm,
+    // use exact match (0 tolerance) for clustering
     const clusters = [];
     let currentCluster = [allLengths[0]];
 
     for (let i = 1; i < allLengths.length; i++) {
-        if (allLengths[i] - currentCluster[0] <= 100) {
+        if (allLengths[i] === currentCluster[0]) {
             currentCluster.push(allLengths[i]);
         } else {
             clusters.push([...currentCluster]);
@@ -867,7 +906,7 @@ function drawVisualization(results) {
 
     function getPipeColor(length) {
         for (let i = 0; i < pipeLengthTypes.length; i++) {
-            if (Math.abs(length - pipeLengthTypes[i]) < 100) {
+            if (length === pipeLengthTypes[i]) {
                 return PIPE_COLORS[i % PIPE_COLORS.length];
             }
         }
@@ -1101,14 +1140,8 @@ function runCalculation(params) {
     // Collect all unique pipe lengths for color coding
     const allPipes = [...pipeLayoutRight.pipes, ...pipeLayoutLeft.pipes];
     const uniqueLengths = [...new Set(allPipes.map(p => p.length))].sort((a, b) => a - b);
-    // Cluster similar lengths
-    const pipeLengthTypes = [];
-    for (const len of uniqueLengths) {
-        const existing = pipeLengthTypes.find(t => Math.abs(t - len) < 100);
-        if (!existing) {
-            pipeLengthTypes.push(len);
-        }
-    }
+    // Since all pipes are now multiples of 100mm, use exact match for type grouping
+    const pipeLengthTypes = [...uniqueLengths];
 
     // Validate
     const warningsRight = validateLayout(modulesRight, supportPostsRight, pipeLayoutRight, raster, params.connectorLength, params.supportWidth);
@@ -1374,7 +1407,7 @@ function renderPipeTable(results) {
 
     function getTypeClass(length) {
         for (let i = 0; i < pipeLengthTypes.length; i++) {
-            if (Math.abs(length - pipeLengthTypes[i]) < 100) {
+            if (length === pipeLengthTypes[i]) {
                 return `pipe-type-${i + 1}`;
             }
         }
