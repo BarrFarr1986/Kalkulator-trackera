@@ -450,18 +450,25 @@ function greedySupportPattern(numModules, raster, targetDistance, spacingA, spac
 // ============================================================
 
 /**
- * Check if a connector at a given position collides with any support post.
+ * Check if a connector at a given position collides with any support post
+ * OR is too close to a module edge (dilation gap / beam zone).
  * Connector zone: connectorLength centered on position.
  * Support zone: supportWidth centered on post position.
+ * Module beam zone: 40mm from each module edge.
  * @param {number} connectorCenter - Center position of connector (abs from tracker center)
  * @param {Array} supportPosts - Array of support post objects
  * @param {number} connectorLength - Length of connector
  * @param {number} supportWidth - Width of support post
+ * @param {Array} modules - Module positions for this side (optional, for edge check)
  * @returns {boolean} True if collision detected
  */
-function checkConnectorCollision(connectorCenter, supportPosts, connectorLength, supportWidth) {
+function checkConnectorCollision(connectorCenter, supportPosts, connectorLength, supportWidth, modules) {
     const connHalfLen = connectorLength / 2;
     const suppHalfWidth = supportWidth / 2;
+    const beamWidth = 40; // mm from module edge where beam is located
+    // Minimum distance from connector center to any module edge
+    // connector half (150) + beam (40) + safety margin (60) = 250mm
+    const minDistFromEdge = connHalfLen + beamWidth + 60; // 250mm
 
     for (const post of supportPosts) {
         const postPos = post.absPosition || Math.abs(post.position);
@@ -472,7 +479,7 @@ function checkConnectorCollision(connectorCenter, supportPosts, connectorLength,
         const postEnd = postPos + suppHalfWidth;
 
         if (connStart < postEnd && connEnd > postStart) {
-            return true; // Collision!
+            return true; // Collision with support!
         }
     }
     // Also check motor support at position 0
@@ -480,6 +487,20 @@ function checkConnectorCollision(connectorCenter, supportPosts, connectorLength,
     const connEnd = connectorCenter + connHalfLen;
     if (connStart < suppHalfWidth && connEnd > -suppHalfWidth) {
         return true;
+    }
+
+    // Check proximity to module edges (dilation gaps / beam zones)
+    if (modules && modules.length > 0) {
+        for (const mod of modules) {
+            // Check distance from connector center to inner edge of module
+            if (Math.abs(connectorCenter - mod.absInnerEdge) < minDistFromEdge) {
+                return true; // Too close to inner edge/beam!
+            }
+            // Check distance from connector center to outer edge of module
+            if (Math.abs(connectorCenter - mod.absOuterEdge) < minDistFromEdge) {
+                return true; // Too close to outer edge/beam!
+            }
+        }
     }
 
     return false;
@@ -568,7 +589,7 @@ function calculatePipeSegments(supportPosts, modules, standardPipeLength, pipeGa
         // Check for collision with support posts
         // All adjustments are done in steps of 100mm to keep pipe lengths rounded
         let collisionUnresolved = false;
-        if (checkConnectorCollision(connectorCenter, supportPosts, connectorLength, supportWidth)) {
+        if (checkConnectorCollision(connectorCenter, supportPosts, connectorLength, supportWidth, modules)) {
             let adjusted = false;
 
             // Try adjustments in 100mm steps (both shorter and longer)
@@ -577,7 +598,7 @@ function calculatePipeSegments(supportPosts, modules, standardPipeLength, pipeGa
                 const shorterLength = roundedLength - adj * 100;
                 const shorterEnd = pipeStart + shorterLength;
                 const shorterConnCenter = shorterEnd + pipeGap / 2;
-                if (shorterLength >= 1000 && !checkConnectorCollision(shorterConnCenter, supportPosts, connectorLength, supportWidth)) {
+                if (shorterLength >= 1000 && !checkConnectorCollision(shorterConnCenter, supportPosts, connectorLength, supportWidth, modules)) {
                     pipeEnd = shorterEnd;
                     roundedLength = shorterLength;
                     connectorCenter = shorterConnCenter;
@@ -590,7 +611,7 @@ function calculatePipeSegments(supportPosts, modules, standardPipeLength, pipeGa
                 if (longerLength <= standardPipeLength) {
                     const longerEnd = pipeStart + longerLength;
                     const longerConnCenter = longerEnd + pipeGap / 2;
-                    if (!checkConnectorCollision(longerConnCenter, supportPosts, connectorLength, supportWidth)) {
+                    if (!checkConnectorCollision(longerConnCenter, supportPosts, connectorLength, supportWidth, modules)) {
                         pipeEnd = longerEnd;
                         roundedLength = longerLength;
                         connectorCenter = longerConnCenter;
@@ -738,10 +759,10 @@ function validateLayout(modules, supportPosts, pipeLayout, raster, connectorLeng
                     type: 'error',
                     message: `Zlaczka na pozycji ${Math.round(conn.position)}mm - nie udalo sie uniknac kolizji ze slupkiem! Wszystkie proby dostosowania wyczerpane.`
                 });
-            } else if (checkConnectorCollision(conn.position, supportPosts, connectorLength, supportWidth)) {
+            } else if (checkConnectorCollision(conn.position, supportPosts, connectorLength, supportWidth, modules)) {
                 messages.push({
                     type: 'error',
-                    message: `Zlaczka na pozycji ${Math.round(conn.position)}mm koliduje ze slupkiem!`
+                    message: `Zlaczka na pozycji ${Math.round(conn.position)}mm koliduje ze slupkiem lub jest zbyt blisko krawedzi modulu!`
                 });
             }
         }
