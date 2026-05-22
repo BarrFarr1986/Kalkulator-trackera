@@ -546,48 +546,42 @@ function calculatePipeSegments(supportPosts, modules, standardPipeLength, pipeGa
         }
 
         // Not the last pipe - need a connector after it
+        // First: round pipe length to nearest 100mm
+        let roundedLength = roundTo100(pipeEnd - pipeStart);
+        pipeEnd = pipeStart + roundedLength;
+
         // The connector center will be at pipeEnd + pipeGap/2
         let connectorCenter = pipeEnd + pipeGap / 2;
 
         // Check for collision with support posts
+        // All adjustments are done in steps of 100mm to keep pipe lengths rounded
         let collisionUnresolved = false;
         if (checkConnectorCollision(connectorCenter, supportPosts, connectorLength, supportWidth)) {
-            // Try adjusting: shorten pipe by raster increments
             let adjusted = false;
 
-            for (let adj = 1; adj <= 3; adj++) {
-                // Try shortening
-                const shorterEnd = pipeEnd - adj * raster;
+            // Try adjustments in 100mm steps (both shorter and longer)
+            for (let adj = 1; adj <= 30; adj++) {
+                // Try shortening by adj * 100mm
+                const shorterLength = roundedLength - adj * 100;
+                const shorterEnd = pipeStart + shorterLength;
                 const shorterConnCenter = shorterEnd + pipeGap / 2;
-                if (shorterEnd > pipeStart + raster && !checkConnectorCollision(shorterConnCenter, supportPosts, connectorLength, supportWidth)) {
+                if (shorterLength >= 1000 && !checkConnectorCollision(shorterConnCenter, supportPosts, connectorLength, supportWidth)) {
                     pipeEnd = shorterEnd;
+                    roundedLength = shorterLength;
                     connectorCenter = shorterConnCenter;
                     adjusted = true;
                     break;
                 }
 
-                // Try lengthening (if still within standard)
-                const longerEnd = pipeEnd + adj * raster;
-                if (longerEnd - pipeStart <= standardPipeLength) {
+                // Try lengthening by adj * 100mm (if still within standard)
+                const longerLength = roundedLength + adj * 100;
+                if (longerLength <= standardPipeLength) {
+                    const longerEnd = pipeStart + longerLength;
                     const longerConnCenter = longerEnd + pipeGap / 2;
                     if (!checkConnectorCollision(longerConnCenter, supportPosts, connectorLength, supportWidth)) {
                         pipeEnd = longerEnd;
+                        roundedLength = longerLength;
                         connectorCenter = longerConnCenter;
-                        adjusted = true;
-                        break;
-                    }
-                }
-            }
-
-            // If still colliding, try half-raster adjustments
-            if (!adjusted) {
-                for (let adj = 1; adj <= 6; adj++) {
-                    const halfRaster = raster / 2;
-                    const shorterEnd = pipeEnd - adj * halfRaster;
-                    const shorterConnCenter = shorterEnd + pipeGap / 2;
-                    if (shorterEnd > pipeStart + raster && !checkConnectorCollision(shorterConnCenter, supportPosts, connectorLength, supportWidth)) {
-                        pipeEnd = shorterEnd;
-                        connectorCenter = shorterConnCenter;
                         adjusted = true;
                         break;
                     }
@@ -600,17 +594,11 @@ function calculatePipeSegments(supportPosts, modules, standardPipeLength, pipeGa
             }
         }
 
-        // Round pipe length to nearest 100mm
-        pipeEnd = pipeStart + roundTo100(pipeEnd - pipeStart);
-
-        // Recalculate connector center after rounding
-        connectorCenter = pipeEnd + pipeGap / 2;
-
         pipes.push({
             index: pipeIndex,
             startX: pipeStart,
             endX: pipeEnd,
-            length: roundTo100(pipeEnd - pipeStart),
+            length: roundedLength,
             collisionUnresolved: collisionUnresolved
         });
 
