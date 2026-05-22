@@ -177,7 +177,7 @@ function calculateSupportPosts(modules, raster) {
     }
 
     // If no good pattern found, use a greedy approach
-    if (!bestPattern || bestError > tolerance) {
+    if (!bestPattern || bestError > raster) {
         bestPattern = greedySupportPattern(numModules, raster, lastModuleCenter, spacingA, spacingB, spacingC, tolerance, modules);
     }
 
@@ -275,14 +275,114 @@ function generatePatterns(numModules, raster, targetDistance, spacingA, spacingB
         }
     }
 
+    // Pattern 7: n*B + m*A + C (flexible B-heavy patterns ending with A and C)
+    for (let nB = 1; nB <= 10; nB++) {
+        for (let mA = 0; mA <= 5; mA++) {
+            const total = nB * spacingB + mA * spacingA + spacingC;
+            if (Math.abs(total - targetDistance) < raster) {
+                const pattern = [];
+                for (let i = 0; i < nB; i++) pattern.push(spacingB);
+                for (let i = 0; i < mA; i++) pattern.push(spacingA);
+                pattern.push(spacingC);
+                patterns.push(pattern);
+            }
+        }
+    }
+
+    // Pattern 8: n*B + m*A (all B with trailing A spacings)
+    for (let nB = 1; nB <= 10; nB++) {
+        for (let mA = 1; mA <= 5; mA++) {
+            const total = nB * spacingB + mA * spacingA;
+            if (Math.abs(total - targetDistance) < raster) {
+                const pattern = [];
+                for (let i = 0; i < nB; i++) pattern.push(spacingB);
+                for (let i = 0; i < mA; i++) pattern.push(spacingA);
+                patterns.push(pattern);
+            }
+        }
+    }
+
+    // Pattern 9: C + n*B + m*A + C (edge pattern with B-heavy core)
+    for (let nB = 1; nB <= 8; nB++) {
+        for (let mA = 0; mA <= 5; mA++) {
+            const total = 2 * spacingC + nB * spacingB + mA * spacingA;
+            if (Math.abs(total - targetDistance) < raster) {
+                const pattern = [spacingC];
+                for (let i = 0; i < nB; i++) pattern.push(spacingB);
+                for (let i = 0; i < mA; i++) pattern.push(spacingA);
+                pattern.push(spacingC);
+                patterns.push(pattern);
+            }
+        }
+    }
+
+    // Pattern 10: m*A + n*B + C (A-leading patterns)
+    for (let mA = 1; mA <= 5; mA++) {
+        for (let nB = 1; nB <= 8; nB++) {
+            const total = mA * spacingA + nB * spacingB + spacingC;
+            if (Math.abs(total - targetDistance) < raster) {
+                const pattern = [];
+                for (let i = 0; i < mA; i++) pattern.push(spacingA);
+                for (let i = 0; i < nB; i++) pattern.push(spacingB);
+                pattern.push(spacingC);
+                patterns.push(pattern);
+            }
+        }
+    }
+
     return patterns;
 }
 
 /**
- * Greedy approach: work outward placing posts at nearest module centers.
+ * Greedy approach with backtracking: work outward placing posts at nearest module centers.
+ * Uses depth-limited search to avoid dead-ends.
  */
 function greedySupportPattern(numModules, raster, targetDistance, spacingA, spacingB, spacingC, tolerance, modules) {
     const spacings = [spacingA, spacingB, spacingC];
+
+    // Recursive search with backtracking (depth-limited)
+    function search(currentPos, pattern, depth) {
+        // Check if we reached the target
+        if (currentPos >= targetDistance - tolerance && currentPos <= targetDistance + tolerance) {
+            // Verify the last post lands near a module center
+            const { distance } = findNearestModule(currentPos, modules);
+            if (distance <= tolerance) {
+                return [...pattern];
+            }
+        }
+
+        // If we overshot or hit depth limit, fail this branch
+        if (currentPos > targetDistance + tolerance || depth > 12) {
+            return null;
+        }
+
+        // Try each spacing, preferring those that land closer to module centers
+        const candidates = [];
+        for (const spacing of spacings) {
+            const nextPos = currentPos + spacing;
+            if (nextPos > targetDistance + tolerance) continue;
+
+            const { distance } = findNearestModule(nextPos, modules);
+            if (distance <= tolerance) {
+                candidates.push({ spacing, nextPos, distance });
+            }
+        }
+
+        // Sort by distance to module center (prefer closer to center)
+        candidates.sort((a, b) => a.distance - b.distance);
+
+        for (const candidate of candidates) {
+            const result = search(candidate.nextPos, [...pattern, candidate.spacing], depth + 1);
+            if (result) return result;
+        }
+
+        return null; // No valid continuation from this state
+    }
+
+    const result = search(0, [], 0);
+    if (result) return result;
+
+    // Fallback: simple greedy without backtracking (original behavior but with better scoring)
     const pattern = [];
     let currentPos = 0;
 
@@ -294,22 +394,22 @@ function greedySupportPattern(numModules, raster, targetDistance, spacingA, spac
             const nextPos = currentPos + spacing;
             if (nextPos > targetDistance + tolerance) continue;
 
-            const { module: nearestMod, distance } = findNearestModule(nextPos, modules);
-            if (!nearestMod) continue;
+            const { distance } = findNearestModule(nextPos, modules);
+            if (distance > tolerance) continue;
 
-            // Score: prefer landing on module center, prefer reaching target
+            // Score: prefer landing closer to module center, with small penalty for remaining distance
             const remainingDistance = targetDistance - nextPos;
-            const score = distance + (remainingDistance < 0 ? 1000 : 0);
+            const score = distance * 2 + (remainingDistance < 0 ? 10000 : 0);
 
-            if (distance <= tolerance && score < bestScore) {
+            if (score < bestScore) {
                 bestScore = score;
                 bestSpacing = spacing;
             }
         }
 
         if (bestSpacing === null) {
-            // Fallback: use B spacing
-            bestSpacing = spacingB;
+            // No valid move - use smallest spacing to avoid overshoot
+            bestSpacing = spacingC;
         }
 
         pattern.push(bestSpacing);
@@ -418,6 +518,7 @@ function calculatePipeSegments(supportPosts, modules, standardPipeLength, pipeGa
         let connectorCenter = pipeEnd + pipeGap / 2;
 
         // Check for collision with support posts
+        let collisionUnresolved = false;
         if (checkConnectorCollision(connectorCenter, supportPosts, connectorLength, supportWidth)) {
             // Try adjusting: shorten pipe by raster increments
             let adjusted = false;
@@ -455,9 +556,15 @@ function calculatePipeSegments(supportPosts, modules, standardPipeLength, pipeGa
                     if (shorterEnd > pipeStart + raster && !checkConnectorCollision(shorterConnCenter, supportPosts, connectorLength, supportWidth)) {
                         pipeEnd = shorterEnd;
                         connectorCenter = shorterConnCenter;
+                        adjusted = true;
                         break;
                     }
                 }
+            }
+
+            // Track unresolved collision for warning
+            if (!adjusted) {
+                collisionUnresolved = true;
             }
         }
 
@@ -465,14 +572,16 @@ function calculatePipeSegments(supportPosts, modules, standardPipeLength, pipeGa
             index: pipeIndex,
             startX: pipeStart,
             endX: pipeEnd,
-            length: Math.round(pipeEnd - pipeStart)
+            length: Math.round(pipeEnd - pipeStart),
+            collisionUnresolved: collisionUnresolved
         });
 
         // Record connector
         connectors.push({
             index: connectors.length,
             position: connectorCenter,
-            betweenPipes: [pipeIndex, pipeIndex + 1]
+            betweenPipes: [pipeIndex, pipeIndex + 1],
+            collisionUnresolved: collisionUnresolved
         });
 
         // Next pipe starts after the gap
@@ -524,16 +633,24 @@ function optimizePipeLengths(allPipeSegments) {
     }
     clusters.push(currentCluster);
 
-    // For each cluster, pick the most common length or round to a nice number
+    // For each cluster, show actual lengths and count
     const catalog = [];
     for (const cluster of clusters) {
-        // Use the rounded average or the most common value
-        const avg = cluster.reduce((s, v) => s + v, 0) / cluster.length;
-        const roundedLength = Math.round(avg / 10) * 10; // Round to nearest 10mm
+        // Use the most common value, or the longest if all unique
+        const lengthCounts = {};
+        for (const len of cluster) {
+            lengthCounts[len] = (lengthCounts[len] || 0) + 1;
+        }
+        // Sort by count descending, then by length descending
+        const sorted = Object.entries(lengthCounts).sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+        // Show all actual lengths in the cluster
+        const uniqueInCluster = [...new Set(cluster)].sort((a, b) => a - b);
+        const lengthsStr = uniqueInCluster.join(', ');
         catalog.push({
-            length: roundedLength,
+            length: parseInt(sorted[0][0]), // Representative: most common length
+            actualLengths: uniqueInCluster,
             count: cluster.length,
-            usage: `${cluster.length}x segmentow`
+            usage: `${cluster.length}x segmentow (${lengthsStr}mm)`
         });
     }
 
@@ -577,7 +694,12 @@ function validateLayout(modules, supportPosts, pipeLayout, raster, connectorLeng
     // Check connector-support collisions
     if (pipeLayout && pipeLayout.connectors) {
         for (const conn of pipeLayout.connectors) {
-            if (checkConnectorCollision(conn.position, supportPosts, connectorLength, supportWidth)) {
+            if (conn.collisionUnresolved) {
+                messages.push({
+                    type: 'error',
+                    message: `Zlaczka na pozycji ${Math.round(conn.position)}mm - nie udalo sie uniknac kolizji ze slupkiem! Wszystkie proby dostosowania wyczerpane.`
+                });
+            } else if (checkConnectorCollision(conn.position, supportPosts, connectorLength, supportWidth)) {
                 messages.push({
                     type: 'error',
                     message: `Zlaczka na pozycji ${Math.round(conn.position)}mm koliduje ze slupkiem!`
@@ -680,7 +802,7 @@ function drawVisualization(results) {
 
     // Apply transform (zoom + pan)
     ctx.save();
-    ctx.translate(canvasState.offsetX + W / 2, H / 2);
+    ctx.translate(canvasState.offsetX + W / 2, canvasState.offsetY + H / 2);
     ctx.scale(canvasState.scale, canvasState.scale);
 
     const ppm = canvasState.pixelsPerMm; // pixels per mm at base scale
@@ -924,17 +1046,21 @@ let variants = [];
  * @returns {object} Parameter values
  */
 function readInputs() {
+    function parseVal(id, defaultVal) {
+        const val = parseInt(document.getElementById(id).value);
+        return isNaN(val) ? defaultVal : val;
+    }
     return {
-        moduleWidth: parseInt(document.getElementById('moduleWidth').value) || CONFIG.moduleWidth,
-        dilation: parseInt(document.getElementById('dilation').value) || CONFIG.dilation,
-        modulesLeft: parseInt(document.getElementById('modulesLeft').value) || CONFIG.modulesLeft,
-        modulesRight: parseInt(document.getElementById('modulesRight').value) || CONFIG.modulesRight,
-        motorGap: parseInt(document.getElementById('motorGap').value) || CONFIG.motorGap,
-        pipeGapMotor: parseInt(document.getElementById('pipeGapMotor').value) || CONFIG.pipeGapMotor,
-        standardPipeLength: parseInt(document.getElementById('standardPipeLength').value) || CONFIG.standardPipeLength,
-        pipeGap: parseInt(document.getElementById('pipeGap').value) || CONFIG.pipeGap,
-        connectorLength: parseInt(document.getElementById('connectorLength').value) || CONFIG.connectorLength,
-        supportWidth: parseInt(document.getElementById('supportWidth').value) || CONFIG.supportWidth
+        moduleWidth: parseVal('moduleWidth', CONFIG.moduleWidth),
+        dilation: parseVal('dilation', CONFIG.dilation),
+        modulesLeft: parseVal('modulesLeft', CONFIG.modulesLeft),
+        modulesRight: parseVal('modulesRight', CONFIG.modulesRight),
+        motorGap: parseVal('motorGap', CONFIG.motorGap),
+        pipeGapMotor: parseVal('pipeGapMotor', CONFIG.pipeGapMotor),
+        standardPipeLength: parseVal('standardPipeLength', CONFIG.standardPipeLength),
+        pipeGap: parseVal('pipeGap', CONFIG.pipeGap),
+        connectorLength: parseVal('connectorLength', CONFIG.connectorLength),
+        supportWidth: parseVal('supportWidth', CONFIG.supportWidth)
     };
 }
 
