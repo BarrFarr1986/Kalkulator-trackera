@@ -165,20 +165,32 @@ function calculateSupportPosts(modules, raster) {
     // Try different patterns and pick the best one
     const patterns = generatePatterns(numModules, raster, lastModuleCenter, spacingA, spacingB, spacingC);
 
-    // Find the best pattern (prefer more A-type spacings, then closest to last module center)
+    // Find the best pattern: ALL intermediate posts must land within tolerance of a module center.
+    // Among valid patterns, prefer more A-type spacings, then smallest total error.
     let bestPattern = null;
     let bestScore = -Infinity;
 
     for (const pattern of patterns) {
+        // Verify every post in this pattern lands near a module center
         let pos = 0;
+        let allValid = true;
+        let totalDist = 0;
         for (const spacing of pattern) {
             pos += spacing;
+            const { distance } = findNearestModule(pos, modules);
+            if (distance > tolerance) {
+                allValid = false;
+                break;
+            }
+            totalDist += distance;
         }
+        if (!allValid) continue; // Skip patterns where any post misses a module
+
         const error = Math.abs(pos - lastModuleCenter);
         // Count A-type spacings (more A = better, since A is the largest allowed)
         const countA = pattern.filter(s => s === spacingA).length;
         // Score: prioritize more A spacings, then penalize distance from target
-        const score = countA * 10000 - error;
+        const score = countA * 10000 - error - totalDist;
         if (score > bestScore) {
             bestScore = score;
             bestPattern = pattern;
